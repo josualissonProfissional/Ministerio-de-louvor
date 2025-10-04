@@ -1,469 +1,160 @@
-'use strict';
+Florianópolis House Of Prayer (fhop music) - A Boa Parte
 
-// ====== Imports & Setup ======
-console.log('🔍 Iniciando importações...');
-require('dotenv').config();
-const qrcode = require('qrcode-terminal');
-console.log('✅ qrcode-terminal importado');
-// ⬇️ Adiciona MessageMedia
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-console.log('✅ whatsapp-web.js importado');
-const axios = require('axios');
-console.log('✅ axios importado');
+[Intro] E
 
-// ====== Env Vars ======
-const API_BASE_URL = process.env.API_BASE_URL;
-const INTERVAL_MINUTES = Number(process.env.INTERVAL_MINUTES || 5);
-const SEND_DELAY_MS = Number(process.env.SEND_DELAY_MS || 10_000); // entre ofertas
-const RETRY_SENDS = Number(process.env.RETRY_SENDS || 2);          // tentativas extras por envio
-const PER_GROUP_DELAY_MS = Number(process.env.PER_GROUP_DELAY_MS || 2_000); // entre grupos
+[Primeira Parte]
 
-const RAW_GROUP_IDS = process.env.GROUP_IDS || '';     // "id1,id2,id3"
-const RAW_GROUP_NAMES = process.env.GROUP_NAMES || ''; // "Nome A;Nome B;Nome C"
+E
+  Precioso Jesus
 
-if (!API_BASE_URL) {
-  console.error('❌ API_BASE_URL ausente no .env');
-  process.exit(1);
-}
+Aos Teus pés aqui estou
 
-// ====== Helpers de parsing ======
-function splitCsv(str) {
-  return String(str).split(',').map(s => s.trim()).filter(Boolean);
-}
-function splitScsv(str) {
-  return String(str).split(';').map(s => s.trim()).filter(Boolean);
-}
+O que eu poderia te oferecer
 
-const CONFIG_GROUP_IDS = splitCsv(RAW_GROUP_IDS);
-const CONFIG_GROUP_NAMES = splitScsv(RAW_GROUP_NAMES);
+Por tudo o que tu és
 
-// IDs de grupos prontos para uso após resolver nomes
-let RESOLVED_GROUP_IDS = [];
+[Pré-Refrão]
 
-// ====== Axios Instance ======
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10_000,
-});
+E             A
+  Tudo o que tenho
+     C#m    A        E
+ Eu derramo aos Teus pés
+E                A
+Não importa o quanto custou
+   C#m        A      E
+Jesus, Teu valor é maior
 
-// ====== Utils ======
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+[Refrão]
 
-function parseNumber(n) {
-  if (n == null) return null;
-  if (typeof n === 'number') return n;
-  if (typeof n === 'string') {
-    const normalized = n.replace(/\./g, '').replace(',', '.'); // "1.234,56" -> "1234.56"
-    const num = Number(normalized);
-    return Number.isFinite(num) ? num : null;
-  }
-  return null;
-}
-function formatCurrency(n) {
-  const num = parseNumber(n);
-  if (num == null) return null;
-  return num.toFixed(2).replace('.', ',');
-}
+E
+  Eu encontrei o meu tesouro
 
-// 🔁 TEXTO para legenda (sem URL da imagem)
-function formatCaption(product) {
-  const parts = [];
+Eu encontrei o bem mais precioso
 
-  if (product.titulo) {
-    parts.push(`*🛍️ ${product.titulo}🛍️* \n`);
-  }
+Eu encontrei o meu tesouro
 
-  const precoFmt = formatCurrency(product.preco);
-  const precoOriginalFmt = formatCurrency(product.preco_original);
-  if (precoFmt) {
-    // mostra original se existir
-    if (precoOriginalFmt) {
-      parts.push(`💵 *Preço:* R$${precoFmt} - R$${precoOriginalFmt} `);
-    } else {
-      parts.push(`💵 *Preço:* R$ ${precoFmt}`);
-    }
-  }
+Eu encontrei o bem mais precioso
 
-  if (product.porcentagem_desconto) {
-    parts.push(`🎯 *Desconto:* ${product.porcentagem_desconto}% ~OFF~`);
-  }
+[Solo] C#m  B4  E 
 
-  
-  if (product.rating != null) {
-      parts.push(`⭐ *Avaliação:* ${product.rating}`);
-    }
-    
-    if (product.loja) {
-      parts.push(`🏪 *Loja:* ${product.loja}`);
-    }
 
-  if (product.free_shipping === true) {
-    parts.push(`🚚 *Frete:* Grátis \n` );
-  } else if (product.free_shipping === false) {
-    parts.push(`🚚 *Frete:* Pago \n`);
-  }
+[Primeira Parte]
 
-  if (product.url_afiliado) {
-    parts.push(`*🔗Link para a compra:*`)
-    parts.push(` ${product.url_afiliado}`); // URL pura (sem markdown)
-  }
+E   
+  Precioso Jesus
 
-  return parts.join('\n');
-}
+Eu amo o som da Tua voz
+               A           B4
+Tuas palavras são mais desejáveis
+C#m7             A   E
+     Que o mais doce mel
 
-// ====== Envio básico com retry ======
-async function sendMessageWithRetry(client, chatId, content, options = {}, retries = RETRY_SENDS) {
-  let attempt = 0;
-  while (true) {
-    try {
-      await client.sendMessage(chatId, content, options);
-      return true;
-    } catch (err) {
-      attempt++;
-      console.error(`❌ Falha ao enviar para ${chatId} (tentativa ${attempt}):`, err?.message || err);
-      if (attempt > retries) return false;
-      const backoff = Math.min(15_000, 1_000 * 2 ** attempt);
-      console.log(`⏳ Aguardando ${backoff}ms antes de tentar novamente...`);
-      await sleep(backoff);
-    }
-  }
-}
+[Pré-Refrão]
 
-// ====== Enviar TEXTO para todos os grupos ======
-async function sendTextToAllResolvedGroups(text) {
-  if (!Array.isArray(RESOLVED_GROUP_IDS) || RESOLVED_GROUP_IDS.length === 0) {
-    console.error('❌ Nenhum grupo resolvido para envio. Verifique GROUP_IDS/GROUP_NAMES.');
-    return { total: 0, successes: 0, results: [] };
-  }
+ E          A
+Tudo o que tenho
+    C#m    A        E
+Eu derramo aos Teus pés
+                A       E
+Não importa o quanto custou
+   C#m7       A      E
+Jesus, Teu valor é maior
+   C#m7       A      E
+Jesus, Teu valor é maior
 
-  const results = [];
-  for (const gid of RESOLVED_GROUP_IDS) {
-    console.log(`🚚 Enviando TEXTO para grupo ${gid} ...`);
-    const ok = await sendMessageWithRetry(client, gid, text, {}, RETRY_SENDS);
-    results.push({ groupId: gid, ok });
-    if (!ok) console.error(`❌ Falha final ao enviar para ${gid}`);
-    if (PER_GROUP_DELAY_MS > 0) {
-      console.log(`⏸️ Delay entre grupos: ${PER_GROUP_DELAY_MS}ms`);
-      await sleep(PER_GROUP_DELAY_MS);
-    }
-  }
-  const successes = results.filter(r => r.ok).length;
-  return { total: results.length, successes, results };
-}
+[Refrão]
 
-// ====== Enviar IMAGEM + CAPTION para todos os grupos ======
-async function sendMediaToAllResolvedGroups(media, caption) {
-  if (!Array.isArray(RESOLVED_GROUP_IDS) || RESOLVED_GROUP_IDS.length === 0) {
-    console.error('❌ Nenhum grupo resolvido para envio. Verifique GROUP_IDS/GROUP_NAMES.');
-    return { total: 0, successes: 0, results: [] };
-  }
+E                       E4  E
+  Eu encontrei o meu tesou_ro
+                          A  E
+Eu encontrei o bem mais preci_oso
+E                       E4  E
+  Eu encontrei o meu tesou_ro
+E                           A  E
+  Eu encontrei o bem mais preci_oso
 
-  const results = [];
-  for (const gid of RESOLVED_GROUP_IDS) {
-    console.log(`🖼️ Enviando IMAGEM para grupo ${gid} ...`);
-    const ok = await sendMessageWithRetry(client, gid, media, { caption }, RETRY_SENDS);
-    results.push({ groupId: gid, ok });
-    if (!ok) console.error(`❌ Falha final ao enviar para ${gid}`);
-    if (PER_GROUP_DELAY_MS > 0) {
-      console.log(`⏸️ Delay entre grupos: ${PER_GROUP_DELAY_MS}ms`);
-      await sleep(PER_GROUP_DELAY_MS);
-    }
-  }
-  const successes = results.filter(r => r.ok).length;
-  return { total: results.length, successes, results };
-}
+( B4   A  )
+( B4   A  )
 
-// ====== API Calls ======
-async function fetchPendingLinks() {
-  try {
-    console.log(`[DEBUG] Buscando links em: ${API_BASE_URL}/links/`);
-    const { data, status, statusText } = await api.get('/links/', {
-      params: { status: 'pendente', limit: 50 },
-    });
-    console.log(`[DEBUG] Resposta da API:`, status, statusText);
-    console.log(`[DEBUG] Dados recebidos:`, data);
-    return data?.data || [];
-  } catch (error) {
-    console.error('❌ Erro ao buscar links:', error.message);
-    if (error.response) {
-      console.error('❌ Dados da resposta de erro:', {
-        status: error.response.status,
-        statusText: error.response.statusText,
-        data: error.response.data,
-      });
-    } else if (error.request) {
-      console.error('❌ Nenhuma resposta recebida do servidor');
-    } else {
-      console.error('❌ Erro ao configurar a requisição:', error.message);
-    }
-    return [];
-  }
-}
+[Ponte]
 
-async function markAsSent(linkId) {
-  try {
-    await api.post('/send-whatsapp/', { link_id: linkId });
-    return true;
-  } catch (error) {
-    console.error('❌ Erro ao marcar como enviada:', error.message);
-    return false;
-  }
-}
+        B4                       
+Como Maria, que estava aos seus pés
+      A                         B4
+E dissestes a ela: Essa é a boa parte
+          E/G#  A
+Que nunca,     nunca será tirada
 
-// ====== WhatsApp Client ======
-console.log('⚙️  Configurando cliente do WhatsApp...');
-const client = new Client({
-  authStrategy: new LocalAuth({
-    dataPath: './auth',
-    clientId: 'client-1',
-  }),
-  puppeteer: {
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-    ],
-  },
-});
-console.log('✅ Cliente configurado');
+        B4                       
+Como Maria, que estava aos seus pés
+      A                         B4
+E dissestes a ela: Essa é a boa parte
+           A
+Que nunca,     nunca será tirada
 
-client.on('qr', (qr) => {
-  console.log('🔑 QR Code recebido, gerando...');
-  qrcode.generate(qr, { small: true });
-  console.log('✅ QR Code gerado com sucesso!');
-  console.log('📱 Escaneie o QR Code acima para conectar ao WhatsApp Web');
-});
+        B4                       
+Como Maria, que estava aos seus pés
+      A                         B4
+E dissestes a ela: Essa é a boa parte
+                A
+Que nunca,     nunca será tirada
 
-client.on('authenticated', () => {
-  console.log('✅ Autenticado no WhatsApp Web');
-});
+        B4                       
+Como Maria, que estava aos seus pés
+      A                         B4
+E dissestes a ela: Essa é a boa parte
+               A
+Que nunca,     nunca será tirada
 
-client.on('auth_failure', (msg) => {
-  console.error('❌ Falha na autenticação:', msg);
-});
+[Refrão]
 
-client.on('disconnected', (reason) => {
-  console.log('❌ Cliente desconectado:', reason);
-});
+E                       F#m7
+  Eu encontrei o meu tesouro
+E/G#                           A  B4
+     Eu encontrei o bem mais preci_oso
+C#m7                       F#m7  E
+     Eu encontrei o meu tesou___ro
+A                              B4
+   Eu encontrei o bem mais precioso
 
-// ====== Envio para múltiplos grupos ======
-async function resolveGroupIdsByNames(names) {
-  const chats = await client.getChats();
-  const wanted = new Set(names.map(n => n.toLowerCase()));
-  const found = [];
-  for (const c of chats) {
-    if (c.isGroup && c.name && wanted.has(c.name.toLowerCase())) {
-      found.push(c.id?._serialized || c.id);
-    }
-  }
-  const missing = names.filter(n =>
-    !found.some(id => chats.find(c => c.isGroup && (c.id?._serialized || c.id) === id && c.name?.toLowerCase() === n.toLowerCase()))
-  );
-  if (missing.length) {
-    console.warn('⚠️ Grupos não encontrados por nome:', missing);
-  }
-  return found;
-}
+[Ponte]
 
-// ====== Função para download de imagens com tratamento aprimorado ======
-async function downloadImage(url, retries = 3, timeout = 300000) {
-  const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0'
-  ];
+        B4                       
+Como Maria, que estava aos seus pés
+      A                         B4
+E dissestes a ela: Essa é a boa parte
+               A
+Que nunca,     nunca será tirada
 
-  const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
-  
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      console.log(`🔄 Tentativa ${attempt} de baixar imagem: ${url}`);
-      
-      const response = await axios({
-        method: 'GET',
-        url: url,
-        responseType: 'arraybuffer',
-        timeout: timeout,
-        headers: {
-          'User-Agent': randomUserAgent,
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-          'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-          'Referer': 'https://shopee.com.br/',
-          'Sec-Fetch-Dest': 'image',
-          'Sec-Fetch-Mode': 'no-cors',
-          'Sec-Fetch-Site': 'cross-site'
-        },
-        validateStatus: status => status >= 200 && status < 400
-      });
+        B4                        
+Como Maria, que estava aos seus pés
+      A                         B4
+E dissestes a ela: Essa é a boa parte
+                 A
+Que nunca,     nunca será tirada
 
-      if (response.data && response.data.length > 0) {
-        const contentType = response.headers['content-type'] || 'image/jpeg';
-        const base64 = Buffer.from(response.data, 'binary').toString('base64');
-        return new MessageMedia(contentType, base64);
-      } else {
-        throw new Error('Dados da imagem vazios');
-      }
-    } catch (error) {
-      console.error(`❌ Tentativa ${attempt} falhou:`, error.message);
-      if (attempt === retries) {
-        console.error('❌ Todas as tentativas de download falharam');
-        return null;
-      }
-      // Espera exponencial entre tentativas (1s, 2s, 4s, etc.)
-      await sleep(1000 * Math.pow(2, attempt - 1));
-    }
-  }
-  return null;
-}
+        B4                       
+Como Maria, que estava aos seus pés
+      A                         B4
+E dissestes a ela: Essa é a boa parte
+                A
+Que nunca,     nunca será tirada
 
-// ====== Processing (mutex + cache de IDs) ======
-let isProcessing = false;
-const sentIds = new Set();
+        B4                       
+Como Maria, que estava aos seus pés
+      A                         B4
+E dissestes a ela: Essa é a boa parte
+                 A
+Que nunca,     nunca será tirada
 
-async function processPendingLinks() {
-  console.log('🔎 Buscando ofertas pendentes...');
-  const links = await fetchPendingLinks();
+[Refrão Final]
 
-  if (!Array.isArray(links) || links.length === 0) {
-    console.log('🟩 Nenhuma oferta pendente encontrada.');
-    return;
-  }
+E
+  Eu encontrei o meu tesouro
 
-  console.log(`🟨 Encontradas ${links.length} ofertas pendentes.`);
+Eu encontrei o bem mais precioso
 
-  for (const link of links) {
-    const id = link?.id;
-    if (!id) {
-      console.warn('⚠️ Item sem ID. Pulando.', link);
-      continue;
-    }
-    if (sentIds.has(id)) {
-      console.log(`↩️ Já processado nesta sessão: ${id}`);
-      continue;
-    }
+Eu encontrei o meu tesouro
 
-    try {
-      const caption = formatCaption(link);
+Eu encontrei o bem mais precioso
 
-      if (link.imagem_url) {
-        try {
-          // Tenta baixar a imagem com nosso método personalizado
-          console.log(`🖼️ Baixando imagem para oferta ${id}...`);
-          const media = await downloadImage(link.imagem_url);
-          
-          if (media) {
-            console.log(`✅ Imagem baixada com sucesso para oferta ${id}`);
-            const batch = await sendMediaToAllResolvedGroups(media, caption);
-            
-            if (batch.successes > 0) {
-              console.log(`✅ Oferta ${id} (com imagem) enviada para ${batch.successes}/${batch.total} grupo(s).`);
-              const marked = await markAsSent(id);
-              if (!marked) console.warn(`⚠️ Falha ao marcar ${id} como enviada na API.`);
-              sentIds.add(id);
-            } else {
-              console.error(`❌ Falha ao enviar oferta ${id} para os grupos.`);
-              continue; // Pula para a próxima oferta
-            }
-          } else {
-            console.error(`❌ Não foi possível baixar a imagem da oferta ${id}. Pulando para a próxima oferta.`);
-            continue; // Pula para a próxima oferta
-          }
-        } catch (imgErr) {
-          console.error(`⚠️ Erro ao processar imagem da oferta ${id}:`, imgErr.message);
-          console.error(`❌ Pulando oferta ${id} devido ao erro na imagem.`);
-          continue; // Pula para a próxima oferta em caso de erro
-        }
-      } else {
-        // Sem imagem: envia apenas texto
-        console.log(`📝 Enviando apenas texto para oferta ${id}`);
-        const batch = await sendTextToAllResolvedGroups(caption);
-        
-        if (batch.successes > 0) {
-          console.log(`✅ Oferta ${id} enviada (sem imagem) para ${batch.successes}/${batch.total} grupo(s).`);
-          const marked = await markAsSent(id);
-          if (!marked) console.warn(`⚠️ Falha ao marcar ${id} como enviada na API.`);
-          sentIds.add(id);
-        } else {
-          console.error(`❌ Falha ao enviar oferta ${id} para os grupos.`);
-        }
-      }
-
-      console.log(`⏸️ Aguardando ${SEND_DELAY_MS}ms antes da próxima oferta...`);
-      await sleep(SEND_DELAY_MS);
-      
-    } catch (error) {
-      console.error(`❌ Erro ao processar oferta ${id}:`, error.message);
-      await sleep(5000); // Espera 5 segundos antes de continuar
-    }
-  }
-}
-
-async function safeProcessPendingLinks() {
-  if (isProcessing) {
-    console.log('⏳ Já existe um processamento em andamento. Pulando esta rodada.');
-    return;
-  }
-  isProcessing = true;
-  try {
-    await processPendingLinks();
-  } finally {
-    isProcessing = false;
-  }
-}
-
-// ====== Ready Handler Único ======
-client.on('ready', async () => {
-  console.log('🚀 Bot pronto para uso!');
-  console.log('📱 Número do bot:', client.info?.wid?.user);
-
-  try {
-    const ids = new Set(CONFIG_GROUP_IDS);
-
-    if (CONFIG_GROUP_NAMES.length) {
-      console.log('🔎 Resolvendo nomes de grupos para IDs...');
-      const foundIds = await resolveGroupIdsByNames(CONFIG_GROUP_NAMES);
-      for (const id of foundIds) ids.add(id);
-    }
-
-    RESOLVED_GROUP_IDS = Array.from(ids);
-    if (!RESOLVED_GROUP_IDS.length) {
-      console.error('❌ Nenhum grupo disponível. Defina GROUP_IDS ou GROUP_NAMES no .env');
-      process.exit(1);
-    }
-
-    console.log('📋 Grupos configurados:', RESOLVED_GROUP_IDS);
-
-    console.log('🔄 Iniciando processamento de ofertas pendentes...');
-    await safeProcessPendingLinks();
-    console.log('✅ Processamento inicial concluído!');
-  } catch (error) {
-    console.error('❌ Erro no processamento inicial:', error);
-  }
-
-  console.log(`⏱️ Próxima verificação em ${INTERVAL_MINUTES} minuto(s)...`);
-  setInterval(safeProcessPendingLinks, INTERVAL_MINUTES * 60 * 1000);
-});
-
-// ====== Start & Graceful Shutdown ======
-client.initialize();
-
-process.on('SIGINT', async () => {
-  console.log('🧹 Encerrando (SIGINT)...');
-  try { await client.destroy(); } catch {}
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  console.log('🧹 Encerrando (SIGTERM)...');
-  try { await client.destroy(); } catch {}
-  process.exit(0);
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.error('💥 Erro não tratado (Promise):', reason);
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('💥 Exceção não capturada:', err);
-});
